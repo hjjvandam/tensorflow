@@ -42,6 +42,7 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/optimization_registry.h"
 #include "tensorflow/core/common_runtime/process_util.h"
 #include "tensorflow/core/common_runtime/session_factory.h"
+#include "tensorflow/core/framework/device_factory.h"
 #include "tensorflow/core/framework/function.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -152,7 +153,8 @@ class TfrtSession : public tensorflow::Session {
                        bool tpu_use_tpu_runner, bool use_gpu,
                        TfrtSessionInterOpThreadPools inter_op_thread_pools,
                        bool enable_mlrt,
-                       tensorflow::BackendCompiler* backend_compiler)
+                       tensorflow::BackendCompiler* backend_compiler,
+                       StaticDeviceMgr* device_manager)
       : runtime_{runtime},
         device_target_{device_target},
         tpu_use_tpu_runner_{tpu_use_tpu_runner},
@@ -160,7 +162,8 @@ class TfrtSession : public tensorflow::Session {
         inter_op_thread_pools_{std::move(inter_op_thread_pools)},
         enable_mlrt_(enable_mlrt),
         options_{options},
-        backend_compiler_(backend_compiler) {}
+        backend_compiler_(backend_compiler),
+        device_manager_(device_manager) {}
 
   Status Create(const GraphDef& graph) override {
     return Create(GraphDef(graph));
@@ -212,9 +215,10 @@ class TfrtSession : public tensorflow::Session {
     // without applying placer or grappler, it is OK for now because it's only
     // used for captured functions in certain tf.data ops
     const auto& fdef_lib = graph.library();
-    TF_ASSIGN_OR_RETURN(auto fallback_state,
-                        tensorflow::tfrt_stub::FallbackState::Create(
-                            session_options, fdef_lib));
+    TF_ASSIGN_OR_RETURN(
+        auto fallback_state,
+        tensorflow::tfrt_stub::FallbackState::CreateWithDeviceMgr(
+            session_options, fdef_lib, device_manager_));
 
     auto kernel_registry = std::make_unique<mlrt::KernelRegistry>();
     // Register infra and standard math kernels
@@ -472,7 +476,7 @@ class TfrtSession : public tensorflow::Session {
     return errors::Unimplemented("TfrtSession::ListDevices is Unimplemented.");
   }
   Status LocalDeviceManager(const DeviceMgr** output) override {
-    *output = &graph_executor_->fallback_state().device_manager();
+    *output = device_manager_;
     return absl::OkStatus();
   }
 
@@ -550,6 +554,7 @@ class TfrtSession : public tensorflow::Session {
   bool enable_mlrt_ = false;
   SessionOptions options_ = SessionOptions();
   tensorflow::BackendCompiler* backend_compiler_ = nullptr;
+  StaticDeviceMgr* device_manager_ = nullptr;
 };
 
 std::unique_ptr<tensorflow::tfrt_stub::WorkQueueInterface>
@@ -765,7 +770,8 @@ void TfrtSessionFactory::RegisterInitializer(RuntimeInitializer initializer) {
   InitializerRegistry::Get().Register(std::move(initializer));
 }
 
-Status TfrtSessionFactory::InitializeLocked(const TfrtSessionOptions& options) {
+Status TfrtSessionFactory::InitializeLocked(
+    const TfrtSessionOptions& options, const SessionOptions& session_options) {
   mutex_.AssertHeld();
   if (options.use_tpu) {
     DCHECK(!options.backend_compiler);
@@ -788,6 +794,11 @@ Status TfrtSessionFactory::InitializeLocked(const TfrtSessionOptions& options) {
     runtime_ = owned_runtime_.get();
   }
   enable_mlrt_ = options.enable_mlrt;
+  std::vector<std::unique_ptr<Device>> devices;
+  TF_RETURN_IF_ERROR(DeviceFactory::AddCpuDevices(
+      session_options, "/job:localhost/replica:0/task:0", &devices));
+  device_manager_ = new StaticDeviceMgr(std::move(devices));
+
   return absl::OkStatus();
 }
 
@@ -815,7 +826,7 @@ Status TfrtSessionFactory::NewSession(const SessionOptions& options,
 
   absl::MutexLock lock(&mutex_);
   if (!IsInitialized()) {
-    TF_RETURN_IF_ERROR(InitializeLocked({}));
+    TF_RETURN_IF_ERROR(InitializeLocked({}, options));
     TF_RETURN_IF_ERROR(InitializerRegistry::Get().RunInitializer(runtime_));
   }
 
@@ -826,9 +837,10 @@ Status TfrtSessionFactory::NewSession(const SessionOptions& options,
   auto* backend_compiler = options.config.experimental().enable_multi_host()
                                ? backend_compiler_
                                : nullptr;
-  *out_session = new TfrtSession(
-      options, runtime_, device_target_, tpu_use_tpu_runner_, use_gpu_,
-      std::move(inter_op_thread_pools), enable_mlrt_, backend_compiler);
+  *out_session =
+      new TfrtSession(options, runtime_, device_target_, tpu_use_tpu_runner_,
+                      use_gpu_, std::move(inter_op_thread_pools), enable_mlrt_,
+                      backend_compiler, device_manager_);
   return absl::OkStatus();
 }
 
@@ -852,7 +864,7 @@ Status InitializeTfrtSession(const TfrtSessionOptions& options) {
 Status UpdateTfrtSessionOptionsLocked(const TfrtSessionOptions& options) {
   DCHECK(session_factory != nullptr);
   session_factory->mutex_.AssertHeld();
-  return session_factory->InitializeLocked(options);
+  return session_factory->InitializeLocked(options, {});
 }
 
 static const bool kFactoryRgistration = [] {

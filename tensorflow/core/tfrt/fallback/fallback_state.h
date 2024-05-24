@@ -47,8 +47,13 @@ class FallbackState {
       const SessionOptions &session_options,
       const tensorflow::FunctionDefLibrary &fdef_lib);
 
+  static absl::StatusOr<std::unique_ptr<FallbackState>> CreateWithDeviceMgr(
+      const SessionOptions &session_options,
+      const tensorflow::FunctionDefLibrary &fdef_lib,
+      StaticDeviceMgr *device_mgr);
+
   FallbackState(const SessionOptions &session_options,
-                std::vector<std::unique_ptr<Device>> devices,
+                StaticDeviceMgr *device_mgr,
                 const tensorflow::FunctionDefLibrary &fdef_lib);
 
   // Create GraphExecutionState from the `graph_def`. The result will contain a
@@ -61,8 +66,8 @@ class FallbackState {
 
   const SessionOptions &session_options() const { return session_options_; }
 
-  const DeviceMgr &device_manager() const { return device_manager_; }
-  DeviceMgr &device_manager() { return device_manager_; }
+  const DeviceMgr &device_manager() const { return *device_manager_; }
+  DeviceMgr &device_manager() { return *device_manager_; }
 
   const DeviceSet &device_set() const { return device_set_; }
 
@@ -77,7 +82,7 @@ class FallbackState {
 
  private:
   SessionOptions session_options_;
-  StaticDeviceMgr device_manager_;
+  StaticDeviceMgr *device_manager_;
   DeviceSet device_set_;
   FunctionLibraryDefinition func_lib_def_;
   ProcessFunctionLibraryRuntime pflr_;
