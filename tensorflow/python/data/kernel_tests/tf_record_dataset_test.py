@@ -16,6 +16,7 @@
 import gzip
 import os
 import pathlib
+import sys
 import zlib
 
 from absl.testing import parameterized
@@ -187,6 +188,25 @@ class TFRecordDatasetTest(tf_record_test_base.TFRecordTestBase,
     ds = readers.TFRecordDataset(files, name="tf_record_dataset")
     self.assertDatasetProduces(
         ds, expected_output=expected_output, assert_items_equal=True)
+
+  @combinations.generate(combinations.times(
+      test_base.default_test_combinations(),
+      combinations.combine(buffer_size=[None, -1, 0, 100])))
+  def testBufferSize(self, buffer_size):
+    files = [self._filenames[0]]
+
+    expected_output = [self._record(0, i) for i in range(self._num_records)]
+    ds = readers.TFRecordDataset(files, buffer_size=buffer_size,
+                                 name="tf_record_dataset")
+    with self.captureWritesToStream(sys.stderr) as logged:
+      self.assertDatasetProduces(
+          ds, expected_output=expected_output, assert_items_equal=True)
+    if buffer_size is None or buffer_size == -1:
+      self.assertIn("TFRecordDataset `buffer_size` is unspecified, default to ",
+                    logged.contents())
+    elif buffer_size > -1:
+      self.assertIn("which is overridden by the user specified `buffer_size` "
+                    "of", logged.contents())
 
 
 class TFRecordDatasetCheckpointTest(tf_record_test_base.TFRecordTestBase,
