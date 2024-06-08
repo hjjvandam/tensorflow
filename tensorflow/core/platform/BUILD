@@ -1319,6 +1319,44 @@ tf_cc_test(
     ],
 )
 
+tf_cc_test(
+    name = "log_test",
+    srcs = ["log_test.cc"],
+    tags = ["optonly"],
+    deps = [
+        "//tensorflow/core/platform",
+        "//tensorflow/core/platform:logging",
+        "//tensorflow/core/platform:macros",
+        "//tensorflow/core/platform:test",
+    ],
+)
+
+tf_cc_test(
+    name = "vlog_filename_test",
+    srcs = ["vlog_filename_test.cc"],
+    tags = ["optonly"],
+    deps = [
+        "//tensorflow/core/platform",
+        "//tensorflow/core/platform:logging",
+        "//tensorflow/core/platform:macros",
+        "//tensorflow/core/platform:test",
+        "@com_google_absl//absl/cleanup",
+        "@local_tsl//tsl/platform:path",
+    ],
+)
+
+tf_cc_test(
+    name = "vlog_test",
+    srcs = ["vlog_test.cc"],
+    tags = ["optonly"],
+    deps = [
+        "//tensorflow/core/platform",
+        "//tensorflow/core/platform:logging",
+        "//tensorflow/core/platform:macros",
+        "//tensorflow/core/platform:test",
+    ],
+)
+
 tf_cuda_cc_test(
     name = "rocm_rocdl_path_test",
     size = "small",

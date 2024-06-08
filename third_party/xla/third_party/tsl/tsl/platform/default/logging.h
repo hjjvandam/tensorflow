@@ -99,6 +99,8 @@ class LogMessage : public std::basic_ostringstream<char> {
   // Change the location of the log message.
   LogMessage& AtLocation(const char* fname, int line);
 
+  void WithVerbosity(int level) { verbose_level_ = level; }
+
   // Returns the maximum log level for VLOG statements.
   // E.g., if MaxVLogLevel() is 2, then VLOG(2) statements will produce output,
   // but VLOG(3) will not. Defaults to 0.
@@ -122,6 +124,7 @@ class LogMessage : public std::basic_ostringstream<char> {
   const char* fname_;
   int line_;
   int severity_;
+  int verbose_level_ = -1;
 };
 
 // Uses the lower operator & precedence to voidify a LogMessage reference, so
@@ -183,12 +186,12 @@ class LogMessageNull : public std::basic_ostringstream<char> {
 
 #endif
 
-#define VLOG(level)                   \
-  TF_PREDICT_TRUE(!VLOG_IS_ON(level)) \
-  ? (void)0                           \
-  : ::tsl::internal::Voidifier() &    \
-          ::tsl::internal::LogMessage(__FILE__, __LINE__, tsl::INFO)
-
+#define VLOG(level)                                                  \
+  TF_PREDICT_TRUE(!VLOG_IS_ON(level))                                \
+  ? (void)0                                                          \
+  : ::tsl::internal::Voidifier() &                                   \
+          ::tsl::internal::LogMessage(__FILE__, __LINE__, tsl::INFO) \
+              .WithVerbosity(level)
 // `DVLOG` behaves like `VLOG` in debug mode (i.e. `#ifndef NDEBUG`).
 // Otherwise, it compiles away and does nothing.
 #ifndef NDEBUG
@@ -576,14 +579,16 @@ class TFLogEntry {
   explicit TFLogEntry(int severity, absl::string_view message)
       : severity_(AsAbslLogSeverity(severity)), message_(message) {}
 
-  explicit TFLogEntry(int severity, absl::string_view fname, int line,
-                      absl::string_view message)
+  explicit TFLogEntry(int severity, absl::string_view fname, int verbose_level,
+                      int line, absl::string_view message)
       : severity_(AsAbslLogSeverity(severity)),
         fname_(fname),
+        verbose_level_(verbose_level),
         line_(line),
         message_(message) {}
 
   absl::LogSeverity log_severity() const { return severity_; }
+  int verbose_level() const { return verbose_level_; }
   std::string FName() const { return fname_; }
   int Line() const { return line_; }
   std::string ToString() const { return message_; }
@@ -596,6 +601,7 @@ class TFLogEntry {
  private:
   const absl::LogSeverity severity_;
   const std::string fname_;
+  int verbose_level_ = -1;  // >= 0 for VLOG, -1 otherwise.
   int line_ = -1;
   const std::string message_;
 };
