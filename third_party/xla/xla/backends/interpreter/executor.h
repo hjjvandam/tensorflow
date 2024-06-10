@@ -117,10 +117,6 @@ class XlaInterpreterExecutor : public StreamExecutorCommon {
     return absl::Status{absl::StatusCode::kUnimplemented, "RecordEvent"};
   }
 
-  absl::Status WaitForEvent(Stream *stream, Event *event) override {
-    return absl::Status{absl::StatusCode::kUnimplemented, "WaitForEvent"};
-  }
-
   void DeallocateStream(Stream *stream) override {}
   bool CreateStreamDependency(Stream *dependent, Stream *other) override;
 
